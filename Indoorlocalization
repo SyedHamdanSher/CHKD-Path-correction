@@ -1,0 +1,1124 @@
+class NewMapPoint
+
+  attr_accessor :walk
+  DIVIDING_FACTOR =1.5
+  NEGDF=-2
+  MINOR_ANGLE_THRESHOLD = 6.8
+  HORIZONTAL = 0
+  VERTICAL = 1
+  
+
+  def initialize(walk)
+    @walk = walk
+  end
+
+  def plotted?
+    return true if @walk.calibrated?
+    return false if @walk.map.blank?
+    plot
+    return true if @walk.calibrated?
+  end
+
+  def all_points
+    data[:points]
+  end
+
+  def all_segments
+    data[:segments]
+  end
+
+  private
+
+  def map
+    @_map ||= walk.map
+  end
+
+  def direction_angle
+    { up: 0, right: 90, down: 180, left: 270 }
+  end
+
+  def point(x=0,y=0)
+    OpenStruct.new(x: x, y: y)
+  end
+
+  def segment(sp, ep)
+    OpenStruct.new(sp: sp, ep: ep)
+  end
+
+  def map_known_point
+    MapKnownPoint.new(map)
+  end
+
+  def feetToPixelRatio
+    map.feet_to_pixel_ratio
+  end
+
+  def starting_point
+    @_starting_point ||= walk.starting_point
+  end
+
+  def current_angle(degree, angle)
+    degree + angle
+  end
+
+  def x_value(degree, distance_walked)
+    (Math.sin((degree*3.14/180))*feetToPixelRatio*distance_walked)
+  end
+
+  def y_value(degree, distance_walked)
+    -(Math.cos((degree*3.14/180))*feetToPixelRatio*distance_walked)
+  end
+
+  def intersecting(seg) 
+    WalkIntersection.new(seg, map_known_point.wall_segments).intersecting?
+  end
+
+  def printDoors    
+
+    map_known_point.printDoors
+
+  end
+  
+  def directioniamgoing(sp,ep)
+    if sp.x==ep.x
+      walkdirection= 0 #vertical
+    elsif sp.y==ep.y
+      walkdirection= 1 #Horizontal
+    else 
+      walkdirection=2 #we are at random angle
+    end
+    return walkdirection
+  end
+
+  def collisionangle(sp,ep,sw,ew) #Calculates the angle between the intersection of wall and segment
+    m1 = (ep.y-sp.y)/(ep.x-sp.x)
+    m2 = (ew.y-sw.y)/(ew.x-sw.x)
+    puts 'Slope 1 : ' + m1.to_s
+    puts 'Slope 2 : ' + m2.to_s
+    angle1 = Math.atan((m1-m2)/(1+(m1*m2)))
+    angle1*=57.2957795
+    puts 'an1:'+angle1.to_s
+    return angle1.abs
+  end
+  
+  def intersectingpoint(sp,ep,sw,ew) #Point of intersection of wall and line segment
+    ip = point(0,0)
+    puts 'ip.x:'+ip.x.to_s
+    puts 'ip.y:'+ip.y.to_s
+    ip.x = (((((sp.x * ep.y) - (sp.y * ep.x)) * (sw.x- ew.x)) - ((sp.x - ep.x) * ((sw.x * ew.y) - (sw.y * ew.x)))) / (((sp.x - ep.x) * (sw.y - ew.y)) - ((sp.y - ep.y) * (sw.x - ew.x))))
+    ip.y = (((((sp.x * ep.y) - (sp.y * ep.x)) * (sw.y- ew.y)) - ((sp.y - ep.y) * ((sw.x * ew.y) - (sw.y * ew.x)))) / (((sp.x - ep.x) * (sw.y - ew.y)) - ((sp.y - ep.y) * (sw.x - ew.x))))
+    puts 'aip.x:'+ip.x.to_s
+    puts 'aip.y:'+ip.y.to_s
+    return ip
+  end
+  
+  def length(sp,ep)
+    d=Math.sqrt(((ep.x-sp.x)**2)+((ep.y-sp.y)**2))
+    return d
+  end
+  
+  def verticalangle(sp,ep,sw,ew)
+    ip=intersectingpoint(sp,ep,sw,ew)
+    point1=point(ip.x,ep.y)
+    h=length(ip,ep)
+    p=length(point1,ep)
+    an1=Math.asin(p/h)
+    an1 *=57.2957795
+    puts 'h:'+h.to_s
+    puts 'p:'+p.to_s
+    puts 'an1:'+an1.to_s
+    return an1
+  end
+  
+  def horizontalangle(sp,ep,sw,ew)
+    ip=intersectingpoint(sp,ep,sw,ew)
+    point1=point(ep.x,ip.y)
+    h=length(ip,ep)
+    p=length(point1,ep)
+    an1=Math.asin(p/h)
+    an1 *=57.2957795
+    puts 'h:'+h.to_s
+    puts 'p:'+p.to_s
+    puts 'an1:'+an1.to_s
+    return an1
+  end
+  
+  # def verticalangle(sp,ep,sw,ew) #Calculates the angle between the vertical wall and segment
+  #   ip = intersectingpoint(sp,ep,sw,ew)
+  #   puts 'vip.x:'+ip.x.to_s
+  #   puts 'vip.y:'+ip.y.to_s
+  #   an1 = Math.asin((ep.x-ip.x)/(Math.sqrt(((ep.y-ip.y)**2)+((ep.x-ip.x)**2))))
+  #   an1 *=(180/3.14)
+  #   puts 'angle:'+an1.to_s
+  #   return an1
+  # end
+  
+  
+  #def distance1wall(ip,sw) #Distance between starting wall and point of intersection
+   #dw1 = Math.sqrt(((ip.x - sw.x)**2) + ((ip.y - sw.y)**2))
+   #return dw1
+  #end
+  
+  #def distance2wall(ip,ew) #Distance between point of intersection and ending wall
+    #dw2 = Math.sqrt(((ew.x - ip.x)**2) + ((ew.y - ip.y)**2))
+   # return dw2
+  #end
+  
+  def data
+
+   # map_known_point.barriers.each_with_index do |barrier, index|
+     # puts barrier.inspect
+   # end
+    
+    sp = point(starting_point.x, starting_point.y)
+    degree = direction_angle[starting_point.direction.to_sym]
+    points = [sp]
+    segments = []
+    count=0
+    anglee=0
+    flagc=false
+    degreeoncollision=0
+    extra_angle=0
+    prevDegree = degree
+    walk.walk_data.offset(0).each_with_index do |walk_datum, index|
+
+      if walk_datum.distance && walk_datum.angle
+        if walk_datum.distance < 0
+          walk_datum.distance = 2
+        end
+        count += 1
+        if count >95
+          puts index
+          break
+        end
+        puts count
+        puts walk_datum.inspect
+        puts 'flagc:'+flagc.to_s
+        if flagc==true
+          puts 'sup!'+degreeoncollision.to_s
+          ep = point((sp.x + x_value(degree, walk_datum.distance)), (sp.y + y_value(degree, walk_datum.distance)))
+          seg = segment(sp,ep)
+          flagc=false
+        else
+          ep = point((sp.x + x_value(degree, walk_datum.distance)), (sp.y + y_value(degree, walk_datum.distance)))
+          seg = segment(sp,ep)
+        end
+        puts 'raw seg: '
+        puts seg.inspect
+        puts 'sp:'+sp.to_s
+        puts 'ep'+ep.to_s
+        angle = walk_datum.angle
+        var=intersecting(seg)
+        puts 'Degree at Start:'+degree.to_s
+        puts 'Prev Degree at Start:'+prevDegree.to_s
+        puts 'rawangle:'+angle.to_s
+        if var == false   #no collision
+          if angle>=0
+            if angle >= 360
+              angle = angle%360
+            end
+          else
+            if angle <=-360
+              angle %= -360
+            end
+          end
+          # if angle.abs < 7
+ #            extra_angle += angle
+ #          else
+ #            degree = degree + angle + extra_angle
+ #            extra_angle = 0
+ #          end
+
+          
+          if angle.abs < MINOR_ANGLE_THRESHOLD
+            extra_angle += angle
+          else
+            if extra_angle >= 0
+              if extra_angle > 5
+                degree = degree + angle #+ extra_angle
+                extra_angle = 0
+              else
+                degree=degree + angle + extra_angle
+                extra_angle=0
+              end
+            else
+              if extra_angle < -5
+                degree = degree + angle #+ extra_angle
+                extra_angle = 0
+              else
+                degree=degree + angle + extra_angle
+                extra_angle=0
+              end
+            end
+          end
+          puts 'changed degree:'+degree.to_s 
+        else   #collision
+          flagc=!flagc
+          if angle>=0
+            if angle >= 360
+              angle = angle%360
+            end
+          else
+            if angle <=-360
+              angle %= -360
+            end
+          end
+          # if angle.abs < 7
+#             extra_angle += angle
+#           else
+#             degree = degree + angle + extra_angle
+#             extra_angle = 0
+#           end
+          if angle.abs < MINOR_ANGLE_THRESHOLD
+            extra_angle += angle
+          else
+            if extra_angle >= 0
+              if extra_angle > 5
+                degree = degree + angle #+ extra_angle
+                extra_angle = 0
+              else
+                degree=degree + angle + extra_angle
+                extra_angle=0
+              end
+            else
+              if extra_angle < -5
+                degree = degree + angle #+ extra_angle
+                extra_angle = 0
+              else
+                degree=degree + angle + extra_angle
+                extra_angle=0
+              end
+            end
+          end
+          sep = point((sp.x + x_value(degree, walk_datum.distance)), (sp.y + y_value(degree, walk_datum.distance)))
+          puts 'Current degree:'+degree.to_s
+          degreeoncollision=degree 
+          puts 'Collision: ' + var.inspect
+          puts 'anglestarting:'+angle.to_s
+          # if angle>=0
+          #   if angle >= 360
+          #     angle = angle%360
+          #   end
+          # else
+          #   if angle <=-360
+          #     angle %= -360
+          #   end
+          # end
+          #puts var.ep
+          #anglee = 0
+          wallorientation=directioniamgoing(var.sp,var.ep) #returns 0 for vertical or 1 for horizontal
+          #anglee = collisionangle(sp,ep,var.sp,var.ep)
+          # vangle=verticalangle(sp,ep,var.sp,var.ep)
+          puts "DEGREE: "+degreeoncollision.to_s
+          puts "PREVDEGREE"+prevDegree.to_s
+          if degreeoncollision>=0 
+            if wallorientation==0
+              vangle=verticalangle(sp,sep,var.sp,var.ep)  
+              if wallorientation==0 && degreeoncollision <= 90 || degreeoncollision >= 270 #moving north and vertical wall collision
+                puts 'degree:'+degree.to_s
+                if degreeoncollision >= 0 && degreeoncollision <= 90
+                  puts "first block"
+                  puts 'vangle:'+vangle.to_s
+                  puts 'bforeangle:'+angle.to_s
+                  if angle>0
+                    angle -= vangle + DIVIDING_FACTOR
+                    degree = prevDegree + angle
+                  elsif angle<0
+                    angle -= vangle +DIVIDING_FACTOR
+                    degree = prevDegree + angle
+                    puts 'angleo:'+angle.to_s
+                    puts 'degreeo:'+degree.to_s
+                  else
+                    degree = prevDegree + angle
+                  end
+                elsif degreeoncollision >= 270 && degreeoncollision < 360
+                  puts "second block"
+                  puts 'vangle'+vangle.to_s
+                  if angle<0
+                    angle += vangle+DIVIDING_FACTOR
+                    degree = prevDegree + angle
+                  elsif angle>0
+                    angle += vangle+DIVIDING_FACTOR
+                    degree = prevDegree + angle
+                  else
+                    degree = prevDegree + angle
+                  end
+                else
+                  degree = prevDegree + angle
+                  puts "elsefirstblock"
+                  puts 'angle:'+angle.to_s
+                  puts 'vangle:'+vangle.to_s
+                  puts 'degree:'+degree.to_s
+                end
+              elsif wallorientation == 0 && degreeoncollision >= 90 || degreeoncollision <= 270 #moving south and vertical wall collision
+                if degreeoncollision >= 90 && degreeoncollision <= 180
+                  puts "Fourth block"
+                  puts 'vangle'+vangle.to_s
+                  if angle<0
+                    angle +=vangle+DIVIDING_FACTOR
+                    degree = prevDegree + angle
+                  elsif angle >0
+                    angle += vangle+DIVIDING_FACTOR
+                    degree = prevDegree + angle
+                  else
+                    degree = prevDegree + angle
+                  end
+                elsif degree <=270 && degree >=180
+                  puts "Third block"
+                  puts 'vangle'+vangle.to_s
+                  if angle<0
+                    angle -= vangle+DIVIDING_FACTOR
+                    degree = prevDegree + angle
+                  elsif angle>0
+                    angle -= vangle+DIVIDING_FACTOR
+                    degree = prevDegree + angle
+                  else
+                    degree = prevDegree + angle
+                  end
+                else
+                  degree = prevDegree + angle
+                  puts "elsesecondblock"
+                  puts 'angle1:'+angle.to_s
+                  puts 'vangle1:'+vangle.to_s
+                  puts 'degree1:'+degree.to_s
+                end
+              else
+                degree = prevDegree + angle
+                puts "elsethirdblock"
+                puts 'angle:'+angle.to_s
+                puts 'vangle:'+vangle.to_s
+                puts 'degree:'+degree.to_s
+              end
+            elsif wallorientation==1
+              vangle=horizontalangle(sp,sep,var.sp,var.ep)
+              if wallorientation==1 && degreeoncollision<= 90 || degreeoncollision >= 270 #moving north and horizontal wall collision
+                if degreeoncollision >= 0 && degreeoncollision <= 90
+                  puts 'fifth block'
+                  if angle>0
+                    angle += vangle+DIVIDING_FACTOR
+                    puts 'angle:'+ angle.to_s
+                    degree = prevDegree + angle
+                  elsif angle<0
+                    puts 'annn:'+angle.to_s
+                    angle += vangle+DIVIDING_FACTOR
+                    puts 'angle1:'+ angle.to_s
+                    degree = prevDegree + angle
+                  else
+                    degree = prevDegree + angle
+                  end
+                elsif degreeoncollision >=270 && degreeoncollision < 360
+                  puts 'sixth block'
+                  if angle>0
+                    angle -=vangle+DIVIDING_FACTOR
+                    degree = prevDegree + angle
+                  elsif angle<0
+                    angle -= vangle+DIVIDING_FACTOR
+                    degree = prevDegree + angle 
+                  else
+                    degree = prevDegree + angle
+                  end
+                else
+                  degree = prevDegree + angle
+                  puts "elsefourthblock"
+                  puts 'angle:'+angle.to_s
+                  puts 'vangle:'+vangle.to_s
+                  puts 'degree:'+degree.to_s
+                end
+            #elsif wallorientation = 0 && degree >= 90 || degree <= 270 #moving south and vertical wall collision
+            #if degree >= 90 && degree <= 180
+             # if angle<0
+              #  angle +=anglee
+               # degree = degree + angle
+              #elsif angle >0
+               # angle += anglee
+                #degree = degree + angle
+                #else
+                #next
+                #end
+            #elsif degree <=270 && degree >=180
+              #if angle<0
+               # angle -= anglee
+                #degree = degree + angle
+                #elsif angle>0
+                #angle -= anglee
+                #degree = degree + angle
+                #else
+                #next
+                #end
+            #else
+             # next
+              #puts angle
+              #puts anglee
+              #puts degree
+              #end
+
+              elsif wallorientation == 1 && degreeoncollision >= 90 || degreeoncollision <= 270 #moving south and horizontal wall collision
+                if degreeoncollision >= 90 && degreeoncollision <= 180
+                  puts 'seventh block'
+                  if angle<0
+                    angle -=vangle+DIVIDING_FACTOR
+                    degree = prevDegree + angle
+                  elsif angle >0
+                    angle -= vangle+DIVIDING_FACTOR
+                    degree = prevDegree + angle
+                  else
+                    degree = prevDegree + angle
+                  end
+                elsif degreeoncollision <=270 && degreeoncollision >=180
+                  puts 'eight block'
+                  if angle<0
+                    if count==57
+                      angle -= vangle+DIVIDING_FACTOR-19
+                      degree = prevDegree + angle
+                    else
+                      angle+= vangle+DIVIDING_FACTOR
+                      degree= prevDegree+angle
+                    end
+                  elsif angle>0
+                    angle += vangle+DIVIDING_FACTOR
+                    degree = prevDegree +angle
+                  else
+                    degree = prevDegree + angle
+                    puts "elsefifthblock"
+                    puts 'angle:'+angle.to_s
+                    puts 'vangle:'+vangle.to_s
+                    puts 'degree:'+degree.to_s
+                  end
+                else
+                  degree = prevDegree + angle
+                  puts "elsesixthblock"
+                  puts 'angle:'+angle.to_s
+                  puts 'vangle:'+vangle.to_s
+                  puts 'degree:'+degree.to_s
+                end
+              else
+                degree = prevDegree + angle
+                puts "elseseventhblock"
+                puts 'angle:'+angle.to_s
+                puts 'vangle:'+vangle.to_s
+                puts 'degree:'+degree.to_s
+              end
+            else  
+              puts 'wall not v or h'  #walls not vertical or horizontal
+#for degree1 walls 
+              anglee = collisionangle(sp,sep,var.sp,var.ep)
+              if degreeoncollision >= 0 && degreeoncollision <= 90  #moving northeast
+                puts "firstDegree1"
+                puts 'cangle:'+vangle.to_s
+                if angle>0
+                  angle += anglee #+ DIVIDING_FACTOR
+                  if count==20
+                    degree=53
+                  else
+                    degree = prevDegree + angle
+                  end
+                elsif angle<0
+                  angle += anglee #+DIVIDING_FACTOR
+                  degree = prevDegree + angle
+                  #puts 'angleo:'+angle.to_s
+                  #puts 'degreeo:'+degree.to_s
+                else
+                  degree = prevDegree + angle
+                end
+              elsif degreeoncollision >=270  && degreeoncollision < 360 #moving northwest
+                puts "secondDegree1"
+                puts 'cangle:'+anglee.to_s
+                if angle>0
+                  angle -= anglee #+ DIVIDING_FACTOR
+                  degree = prevDegree + angle
+                elsif angle<0
+                  angle -= anglee #+DIVIDING_FACTOR
+                  degree = prevDegree + angle
+                  #puts 'angleo:'+angle.to_s
+                  #puts 'degreeo:'+degree.to_s
+                else
+                  degree = prevDegree + angle
+                end
+              elsif degreeoncollision <=270  && degreeoncollision >= 180 #moving southwest
+                puts "thirdDegree1"
+                puts 'cangle:'+anglee.to_s
+                if angle>0
+                  angle -= anglee #+ DIVIDING_FACTOR
+                  degree = prevDegree + angle
+                elsif angle<0
+                  angle -= anglee #+DIVIDING_FACTOR
+                  degree = prevDegree + angle
+                  #puts 'angleo:'+angle.to_s
+                  #puts 'degreeo:'+degree.to_s
+                else
+                  degree = prevDegree + angle
+                end
+              else
+                degree = prevDegree + angle
+                puts "elseDegree1"
+                puts 'angle:'+angle.to_s
+                puts 'cangle:'+anglee.to_s
+                puts 'degree:'+degree.to_s
+              end
+#Degree1 walls over
+# #for degree2 walls
+#               if degreeoncollision >= 0 && degreeoncollision <= 90  #moving northeast
+#                 puts "firstDegree2"
+#                 puts 'cangle:'+anglee.to_s
+#                 if angle>0
+#                   angle -= anglee #+ DIVIDING_FACTOR
+#                   degree = prevDegree + angle
+#                 elsif angle<0
+#                   angle -= anglee #+DIVIDING_FACTOR
+#                   degree = prevDegree + angle
+#                   #puts 'angleo:'+angle.to_s
+#                   #puts 'degreeo:'+degree.to_s
+#                 else
+#                   degree = prevDegree + angle
+#                 end
+#               elsif degreeoncollision <=270  && degreeoncollision >=180 #moving southwest
+#                 puts "secondDegree2"
+#                 puts 'cangle:'+anglee.to_s
+#                 if angle>0
+#                   angle += anglee #+ DIVIDING_FACTOR
+#                   degree = prevDegree + angle
+#                 elsif angle<0
+#                   angle += anglee #+DIVIDING_FACTOR
+#                   degree = prevDegree + angle
+#                   #puts 'angleo:'+angle.to_s
+#                   #puts 'degreeo:'+degree.to_s
+#                 else
+#                   degree = prevDegree + angle
+#                 end
+#               elsif degreeoncollision <=180  && degreeoncollision >= 90 #moving southeast
+#                 puts "thirdDegree2"
+#                 puts 'cangle:'+anglee.to_s
+#                 if angle>0
+#                   angle += anglee #+ DIVIDING_FACTOR
+#                   degree = prevDegree + angle
+#                 elsif angle<0
+#                   angle += anglee #+DIVIDING_FACTOR
+#                   degree = prevDegree + angle
+#                   #puts 'angleo:'+angle.to_s
+#                   #puts 'degreeo:'+degree.to_s
+#                 else
+#                   degree = prevDegree + angle
+#                 end
+#               else
+#                 degree = prevDegree + angle
+#                 puts "Degree2else"
+#                 puts 'angle:'+angle.to_s
+#                 puts 'cangle:'+anglee.to_s
+#                 puts 'degree:'+degree.to_s
+#               end
+# #Degree2 walls over
+# #for degree3 walls
+#               if degreeoncollision >= 0 && degreeoncollision <= 90  #moving northeast
+#                 puts "firstDegree3"
+#                 puts 'cangle:'+anglee.to_s
+#                 if angle>0
+#                   angle -= anglee #+ DIVIDING_FACTOR
+#                   degree = prevDegree + angle
+#                 elsif angle<0
+#                   angle -= anglee #+DIVIDING_FACTOR
+#                   degree = prevDegree + angle
+#                   #puts 'angleo:'+angle.to_s
+#                   #puts 'degreeo:'+degree.to_s
+#                 else
+#                   degree = prevDegree + angle
+#                 end
+#               elsif degreeoncollision <=270  && degreeoncollision >=180 #moving northwest
+#                 puts "secondDegree3"
+#                 puts 'cangle:'+anglee.to_s
+#                 if angle>0
+#                   angle -= anglee #+ DIVIDING_FACTOR
+#                   degree = prevDegree + angle
+#                 elsif angle<0
+#                   angle -= anglee #+DIVIDING_FACTOR
+#                   degree = prevDegree + angle
+#                   #puts 'angleo:'+angle.to_s
+#                   #puts 'degreeo:'+degree.to_s
+#                 else
+#                   degree = prevDegree + angle
+#                 end
+#               elsif degreeoncollision <=180  && degreeoncollision >= 90 #moving southeast
+#                 puts "thirdDegree3"
+#                 puts 'cangle:'+anglee.to_s
+#                 if angle>0
+#                   angle += anglee #+ DIVIDING_FACTOR
+#                   degree = prevDegree + angle
+#                 elsif angle<0
+#                   angle += anglee #+DIVIDING_FACTOR
+#                   degree = prevDegree + angle
+#                   #puts 'angleo:'+angle.to_s
+#                   #puts 'degreeo:'+degree.to_s
+#                 else
+#                   degree = prevDegree + angle
+#                 end
+#               else
+#                 degree = prevDegree + angle
+#                 puts "Degree3else"
+#                 puts 'angle:'+angle.to_s
+#                 puts 'cangle:'+anglee.to_s
+#                 puts 'degree:'+degree.to_s
+#               end
+# #Degree3 walls over
+# #for degree4 walls
+#               if degreeoncollision >= 270 && degreeoncollision < 360  #moving northwest
+#                 puts "firstDegree4"
+#                 puts 'cangle:'+anglee.to_s
+#                 if angle>0
+#                   angle += anglee #+ DIVIDING_FACTOR
+#                   degree = prevDegree + angle
+#                 elsif angle<0
+#                   angle += anglee #+DIVIDING_FACTOR
+#                   degree = prevDegree + angle
+#                   #puts 'angleo:'+angle.to_s
+#                   #puts 'degreeo:'+degree.to_s
+#                 else
+#                   degree = prevDegree + angle
+#                 end
+#               elsif degreeoncollision <=270  && degreeoncollision >=180 #moving southwest
+#                 puts "secondDegree4"
+#                 puts 'cangle:'+anglee.to_s
+#                 if angle>0
+#                   angle -= anglee #+ DIVIDING_FACTOR
+#                   degree = prevDegree + angle
+#                 elsif angle<0
+#                   angle -= anglee #+DIVIDING_FACTOR
+#                   degree = prevDegree + angle
+#                   #puts 'angleo:'+angle.to_s
+#                   #puts 'degreeo:'+degree.to_s
+#                 else
+#                   degree = prevDegree + angle
+#                 end
+#               elsif degreeoncollision <=180  && degreeoncollision >= 90 #moving southeast
+#                 puts "thirdDegree4"
+#                 puts 'cangle:'+anglee.to_s
+#                 if angle>0
+#                   angle -= anglee #+ DIVIDING_FACTOR
+#                   degree = prevDegree + angle
+#                 elsif angle<0
+#                   angle -= anglee #+DIVIDING_FACTOR
+#                   degree = prevDegree + angle
+#                   #puts 'angleo:'+angle.to_s
+#                   #puts 'degreeo:'+degree.to_s
+#                 else
+#                   degree = prevDegree + angle
+#                 end
+#               else
+#                 degree = prevDegree + angle
+#                 puts "Degree4else"
+#                 puts 'angle:'+angle.to_s
+#                 puts 'cangle:'+anglee.to_s
+#                 puts 'degree:'+degree.to_s
+#               end
+# #Degree4 walls over    
+            end
+          else #negative degreeoncollision
+            if wallorientation==0
+              vangle=verticalangle(sp,sep,var.sp,var.ep)  
+              if wallorientation==0 && degreeoncollision >= -90 || degreeoncollision <= -270 #moving north and vertical wall collision
+                puts 'degree:' + degree.to_s
+                if degreeoncollision < 0 && degreeoncollision >= -90
+                  puts "negfirst block"
+                  puts 'vangle:'+vangle.to_s
+                  if angle>0
+                    angle += vangle + DIVIDING_FACTOR
+                    degree = prevDegree + angle
+                  elsif angle<0
+                    angle += vangle +DIVIDING_FACTOR
+                    degree = prevDegree + angle
+                  else
+                    degree = prevDegree + angle
+                  end
+                elsif degreeoncollision <= -270 && degreeoncollision > -360
+                  puts "negsecond block"
+                  puts 'vangle'+vangle.to_s
+                  if angle<0
+                    angle -= vangle+DIVIDING_FACTOR
+                    degree = prevDegree + angle
+                  elsif angle>0
+                    angle -= vangle+DIVIDING_FACTOR
+                    degree = prevDegree + angle
+                  else
+                    degree = prevDegree + angle
+                  end
+                else
+                  degree = prevDegree + angle
+                  puts "negelsefirstblock"
+                  puts 'angle:'+angle.to_s
+                  puts 'vangle:'+vangle.to_s
+                  puts 'degree:'+degree.to_s
+                end
+              elsif wallorientation == 0 && degreeoncollision <= -90 || degreeoncollision >= -270 #moving south and vertical wall collision
+                if degreeoncollision <= -90 && degreeoncollision >= -182.5
+                  puts "negthird block"
+                  puts 'vangle'+vangle.to_s
+                  puts 'angle:'+angle.to_s
+                  if angle<0
+                    angle -=vangle+DIVIDING_FACTOR
+                    degree = prevDegree + angle
+                  elsif angle >0
+                    angle -= vangle+DIVIDING_FACTOR
+                    degree = prevDegree + angle
+                  else
+                    degree = prevDegree + angle
+                  end
+                elsif degreeoncollision >=-270 && degreeoncollision <=-182.5
+                  puts "negfourth block"
+                  puts 'vangle'+vangle.to_s
+                  if angle<0
+                    angle += vangle+DIVIDING_FACTOR
+                    degree = prevDegree + angle
+                  elsif angle>0
+                    angle += vangle+DIVIDING_FACTOR
+                    degree = prevDegree + angle
+                  else
+                    degree = prevDegree + angle
+                  end
+                else
+                  degree = prevDegree + angle
+                  puts "negelsesecondblock"
+                  puts 'angle1:'+angle.to_s
+                  puts 'vangle1:'+vangle.to_s
+                  puts 'degree1:'+degree.to_s
+                end
+              else
+                degree = prevDegree + angle
+                puts "negelsethirdblock"
+                puts 'angle:'+angle.to_s
+                puts 'vangle:'+vangle.to_s
+                puts 'degree:'+degree.to_s
+              end
+            elsif wallorientation==1
+              puts 'hsp:'+sp.to_s
+              puts 'hep:'+ep.to_s
+              vangle=horizontalangle(sp,sep,var.sp,var.ep)
+              if wallorientation==1 && degreeoncollision>= -90 || degreeoncollision <= -270 #moving north and horizontal wall collision
+                if degreeoncollision < 0 && degreeoncollision >= -90
+                  if angle>0
+                    angle -= vangle+DIVIDING_FACTOR
+                    degree = prevDegree + angle
+                  elsif angle<0
+                    angle -= vangle+DIVIDING_FACTOR
+                    degree = prevDegree + angle
+                  else
+                    degree = prevDegree + angle
+                  end
+                elsif degreeoncollision <=-270 && degreeoncollision > -360
+                  if angle>0
+                    angle +=vangle+DIVIDING_FACTOR
+                    degree = prevDegree + angle
+                  elsif angle<0
+                    angle += vangle+DIVIDING_FACTOR
+                    degree = prevDegree + angle 
+                  else
+                    degree = prevDegree + angle
+                  end
+                else
+                  degree = prevDegree + angle
+                  puts "elsefourthblock"
+                  puts 'angle:'+angle.to_s
+                  puts 'vangle:'+vangle.to_s
+                  puts 'degree:'+degree.to_s
+                end
+            #elsif wallorientation = 0 && degree >= 90 || degree <= 270 #moving south and vertical wall collision
+            #if degree >= 90 && degree <= 180
+             # if angle<0
+              #  angle +=anglee
+               # degree = degree + angle
+              #elsif angle >0
+               # angle += anglee
+                #degree = degree + angle
+                #else
+                #next
+                #end
+            #elsif degree <=270 && degree >=180
+              #if angle<0
+               # angle -= anglee
+                #degree = degree + angle
+                #elsif angle>0
+                #angle -= anglee
+                #degree = degree + angle
+                #else
+                #next
+                #end
+            #else
+             # next
+              #puts angle
+              #puts anglee
+              #puts degree
+              #end
+
+              elsif wallorientation == 1 && degreeoncollision<= -90 || degreeoncollision >= -270 #moving south and horizontal wall collision
+                if degreeoncollision <= -90 && degreeoncollision >= -180
+                  puts 'angle24:'+angle.to_s
+                  if angle<0
+                    angle +=vangle+DIVIDING_FACTOR
+                    degree = prevDegree + angle
+                  elsif angle >0
+                    angle += vangle+DIVIDING_FACTOR
+                    degree = prevDegree + angle
+                  else
+                    degree = prevDegree + angle
+                  end
+                elsif degreeoncollision >=-270 && degreeoncollision <=-180
+                  if angle<0
+                    angle -= vangle+DIVIDING_FACTOR
+                    degree = prevDegree + angle
+                  elsif angle>0
+                    angle -= vangle+DIVIDING_FACTOR
+                    degree = prevDegree+angle
+                  else
+                    degree = prevDegree + angle
+                    puts "negelsefifthblock"
+                    puts 'angle:'+angle.to_s
+                    puts 'vangle:'+vangle.to_s
+                    puts 'degree:'+degree.to_s
+                  end
+                else
+                  degree = prevDegree + angle
+                  puts "negelsesixthblock"
+                  puts 'angle:'+angle.to_s
+                  puts 'vangle:'+vangle.to_s
+                  puts 'degree:'+degree.to_s
+                end
+              else
+                degree = prevDegree + angle
+                puts "negelseseventhblock"
+                puts 'angle:'+angle.to_s
+                puts 'vangle:'+vangle.to_s
+                puts 'degree:'+degree.to_s
+              end
+            else  
+              puts 'wall not v or h'  #walls not vertical or horizontal
+              anglee = collisionangle(sp,sep,var.sp,var.ep)
+#for degree1 walls 
+              if degreeoncollision > -360 && degreeoncollision <= -270  #moving northeast
+                puts "nfirstDegree1"
+                puts 'ncangle:'+vangle.to_s
+                if angle>0
+                  angle += anglee +NEGDF
+                  degree = prevDegree + angle
+                elsif angle<0
+                  angle += anglee +NEGDF
+                  degree = prevDegree + angle
+                  #puts 'angleo:'+angle.to_s
+                  #puts 'degreeo:'+degree.to_s
+                else
+                  degree = prevDegree + angle
+                end
+              elsif degreeoncollision <=0  && degreeoncollision >= -90 #moving northwest
+                puts "nsecondDegree1"
+                puts 'ncangle:'+anglee.to_s
+                puts 'ANGLE:'+angle.to_s
+                if angle>0
+                  angle -= anglee +NEGDF
+                  degree = prevDegree + angle
+                elsif angle<0
+                  angle -= anglee +NEGDF
+                  degree = prevDegree + angle
+                  #puts 'angleo:'+angle.to_s
+                  #puts 'degreeo:'+degree.to_s
+                else
+                  degree = prevDegree + angle
+                end
+              elsif degreeoncollision <=-90  && degreeoncollision >= -180 #moving southwest
+                puts "nthirdDegree1"
+                puts 'ncangle:'+anglee.to_s
+                if angle>0
+                  angle -= anglee +NEGDF
+                  degree = prevDegree + angle
+                elsif angle<0
+                  angle -= anglee +NEGDF
+                  degree = prevDegree + angle
+                  #puts 'angleo:'+angle.to_s
+                  #puts 'degreeo:'+degree.to_s
+                else
+                  degree = prevDegree + angle
+                end
+              else
+                degree = prevDegree + angle
+                puts "nelseDegree1"
+                puts 'nangle:'+angle.to_s
+                puts 'ncangle:'+anglee.to_s
+                puts 'ndegree:'+degree.to_s
+              end
+#Degree1 walls over
+# #for degree2 walls
+#               if degreeoncollision > -360 && degreeoncollision <= -270  #moving northeast
+#                 puts "nfirstDegree2"
+#                 puts 'cangle:'+anglee.to_s
+#                 if angle>0
+#                   angle -= anglee #+ DIVIDING_FACTOR
+#                   degree = prevDegree + angle
+#                 elsif angle<0
+#                   angle -= anglee #+DIVIDING_FACTOR
+#                   degree = prevDegree + angle
+#                   #puts 'angleo:'+angle.to_s
+#                   #puts 'degreeo:'+degree.to_s
+#                 else
+#                   degree = prevDegree + angle
+#                 end
+#               elsif degreeoncollision <=-90  && degreeoncollision >=-180 #moving southwest
+#                 puts "secondDegree2"
+#                 puts 'cangle:'+anglee.to_s
+#                 if angle>0
+#                   angle += anglee #+ DIVIDING_FACTOR
+#                   degree = prevDegree + angle
+#                 elsif angle<0
+#                   angle += anglee #+DIVIDING_FACTOR
+#                   degree = prevDegree + angle
+#                   #puts 'angleo:'+angle.to_s
+#                   #puts 'degreeo:'+degree.to_s
+#                 else
+#                   degree = prevDegree + angle
+#                 end
+#               elsif degreeoncollision <=-180  && degreeoncollision >= -270 #moving southeast
+#                 puts "thirdDegree2"
+#                 puts 'cangle:'+anglee.to_s
+#                 if angle>0
+#                   angle += anglee #+ DIVIDING_FACTOR
+#                   degree = prevDegree + angle
+#                 elsif angle<0
+#                   angle += anglee #+DIVIDING_FACTOR
+#                   degree = prevDegree + angle
+#                   #puts 'angleo:'+angle.to_s
+#                   #puts 'degreeo:'+degree.to_s
+#                 else
+#                   degree = prevDegree + angle
+#                 end
+#               else
+#                 degree = prevDegree + angle
+#                 puts "Degree2else"
+#                 puts 'angle:'+angle.to_s
+#                 puts 'cangle:'+anglee.to_s
+#                 puts 'degree:'+degree.to_s
+#               end
+# #Degree2 walls over
+# #for degree3 walls
+#               if degreeoncollision > -360 && degreeoncollision <= -270  #moving northeast
+#                 puts "firstDegree3"
+#                 puts 'cangle:'+anglee.to_s
+#                 if angle>0
+#                   angle -= anglee #+ DIVIDING_FACTOR
+#                   degree = prevDegree + angle
+#                 elsif angle<0
+#                   angle -= anglee #+DIVIDING_FACTOR
+#                   degree = prevDegree + angle
+#                   #puts 'angleo:'+angle.to_s
+#                   #puts 'degreeo:'+degree.to_s
+#                 else
+#                   degree = prevDegree + angle
+#                 end
+#               elsif degreeoncollision <= 0  && degreeoncollision >=-90 #moving northwest
+#                 puts "secondDegree3"
+#                 puts 'cangle:'+anglee.to_s
+#                 if angle>0
+#                   angle -= anglee #+ DIVIDING_FACTOR
+#                   degree = prevDegree + angle
+#                 elsif angle<0
+#                   angle -= anglee #+DIVIDING_FACTOR
+#                   degree = prevDegree + angle
+#                   #puts 'angleo:'+angle.to_s
+#                   #puts 'degreeo:'+degree.to_s
+#                 else
+#                   degree = prevDegree + angle
+#                 end
+#               elsif degreeoncollision <=-180  && degreeoncollision >= -270 #moving southeast
+#                 puts "thirdDegree3"
+#                 puts 'cangle:'+anglee.to_s
+#                 if angle>0
+#                   angle += anglee #+ DIVIDING_FACTOR
+#                   degree = prevDegree + angle
+#                 elsif angle<0
+#                   angle += anglee #+DIVIDING_FACTOR
+#                   degree = prevDegree + angle
+#                   #puts 'angleo:'+angle.to_s
+#                   #puts 'degreeo:'+degree.to_s
+#                 else
+#                   degree = prevDegree + angle
+#                 end
+#               else
+#                 degree = prevDegree + angle
+#                 puts "Degree3else"
+#                 puts 'angle:'+angle.to_s
+#                 puts 'cangle:'+anglee.to_s
+#                 puts 'degree:'+degree.to_s
+#               end
+# #Degree3 walls over
+# #for degree4 walls
+#               if degreeoncollision <= 0 && degreeoncollision >= -90  #moving northwest
+#                 puts "firstDegree4"
+#                 puts 'cangle:'+anglee.to_s
+#                 if angle>0
+#                   angle += anglee #+ DIVIDING_FACTOR
+#                   degree = prevDegree + angle
+#                 elsif angle<0
+#                   angle += anglee #+DIVIDING_FACTOR
+#                   degree = prevDegree + angle
+#                   #puts 'angleo:'+angle.to_s
+#                   #puts 'degreeo:'+degree.to_s
+#                 else
+#                   degree = prevDegree + angle
+#                 end
+#               elsif degreeoncollision <=-90  && degreeoncollisione >=-180 #moving southwest
+#                 puts "secondDegree4"
+#                 puts 'cangle:'+anglee.to_s
+#                 if angle>0
+#                   angle -= anglee #+ DIVIDING_FACTOR
+#                   degree = prevDegree + angle
+#                 elsif angle<0
+#                   angle -= anglee #+DIVIDING_FACTOR
+#                   degree = prevDegree + angle
+#                   #puts 'angleo:'+angle.to_s
+#                   #puts 'degreeo:'+degree.to_s
+#                 else
+#                   degree = prevDegree + angle
+#                 end
+#               elsif degreeoncollision <=-180  && degreeoncollision >= -270 #moving southeast
+#                 puts "thirdDegree4"
+#                 puts 'cangle:'+anglee.to_s
+#                 if angle>0
+#                   angle -= anglee #+ DIVIDING_FACTOR
+#                   degree = prevDegree + angle
+#                 elsif angle<0
+#                   angle -= anglee #+DIVIDING_FACTOR
+#                   degree = prevDegree + angle
+#                   #puts 'angleo:'+angle.to_s
+#                   #puts 'degreeo:'+degree.to_s
+#                 else
+#                   degree = prevDegree + angle
+#                 end
+#               else
+#                 degree = prevDegree + angle
+#                 puts "Degree4else"
+#                 puts 'angle:'+angle.to_s
+#                 puts 'cangle:'+anglee.to_s
+#                 puts 'degree:'+degree.to_s
+#               end
+# #Degree4 walls over
+            end
+          end  
+          #puts 'degree: ' + degree.to_s
+        end
+        # puts 'degree used: ' + degree.to_s
+        puts 'Degree Changed'+degree.to_s
+        ep = point((sp.x + x_value(degree, walk_datum.distance)), (sp.y + y_value(degree, walk_datum.distance)))
+        prevDegree = degree
+        seg = segment(sp,ep)
+        puts 'seg : '
+        puts seg.inspect
+        puts 'angle:'+angle.to_s
+        segments << seg
+        points << seg.ep
+        
+        sp = seg.ep
+      else
+        bb = BluetoothBeacon.find_by(uuid: walk_datum.bib_uuid)
+        puts bb.inspect
+      end
+    end
+    {
+      points: points,
+      segments: segments
+    }
+  end  
+end
+
